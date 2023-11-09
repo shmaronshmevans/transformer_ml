@@ -29,17 +29,12 @@ def columns_drop(df):
 
 def create_data_for_model():
     """
-    This function creates and processes data for a LSTM machine learning model.
-
-    Args:
-        station (str): The station identifier for which data is being processed.
+    This function creates and processes data for a vision transformer machine learning model.
 
     Returns:
-        new_df (pandas DataFrame): A DataFrame containing processed data.
         df_train (pandas DataFrame): A DataFrame for training the machine learning model.
         df_test (pandas DataFrame): A DataFrame for testing the machine learning model.
         features (list): A list of feature names.
-        forecast_lead (int): The lead time for the target variable.
     """
     # load nysm data
     nysm_df = nysm_data.load_nysm_data()
