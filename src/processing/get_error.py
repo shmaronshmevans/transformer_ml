@@ -28,6 +28,7 @@ def nwp_error(target, df):
     nysm_var = vars_dict.get(target)
 
     # Calculate the 'target_error' by subtracting NYSM data from NWP model data.
-    df["target_error"] = df[f"{target}"] - df[f"{nysm_var}"]
+    target_error = df[f"{target}"] - df[f"{nysm_var}"]
+    df.insert(loc=(23), column=f"target_error", value=target_error)
 
     return df

@@ -3,11 +3,10 @@ import sys
 sys.path.append("..")
 import pandas as pd
 import numpy as np
-from processing import hrrr_data
-from processing import nysm_data
-from processing import get_error
-from processing import normalize
-from processing import get_flag
+from src.processing import hrrr_data
+from src.processing import nysm_data
+from src.processing import get_error
+from src.processing import normalize
 
 
 def columns_drop(df):
@@ -44,10 +43,6 @@ def create_data_for_model():
     # load hrrr data
     hrrr_df = hrrr_data.read_hrrr_data()
 
-    # Filter NYSM data to match valid times from HRRR data and save it to a CSV file.
-    mytimes = hrrr_df["valid_time"].tolist()
-    nysm_df = nysm_df[nysm_df["valid_time"].isin(mytimes)]
-
     # Filter data by NY climate division
     nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
     nysm_cats_df = pd.read_csv(nysm_cats_path)
@@ -58,26 +53,39 @@ def create_data_for_model():
     nysm_df = nysm_df[nysm_df["station"].isin(stations)]
     hrrr_df = hrrr_df[hrrr_df["station"].isin(stations)]
 
+    # need to create a master list for valid_times so that all the dataframes are the same shape
+    master_time = hrrr_df['valid_time'].tolist()
+    for station in stations:
+        hrrr_dft = hrrr_df[hrrr_df["station"] == station]
+        nysm_dft = nysm_df[nysm_df["station"] == station]
+        times = hrrr_dft['valid_time'].tolist()
+        times2 = nysm_dft['valid_time'].tolist()
+        result = list(set(times) & set(master_time) & set(times2))
+        master_time = result
+    master_time_final = master_time
+
+    # Filter NYSM data to match valid times from master-list
+    nysm_df_filtered = nysm_df[nysm_df["valid_time"].isin(master_time_final)]
+    hrrr_df_filtered = hrrr_df[hrrr_df["valid_time"].isin(master_time_final)]
+
+    df_train_ls = []
+    df_test_ls = []
     # merge dataframes so that each row is hrrr + nysm data for the same time step
     # do this for each station individually
     for station in stations:
-        nysm_df1 = nysm_df[nysm_df["station"] == station]
-        hrrr_df1 = hrrr_df[hrrr_df["station"] == station]
+        print(f'Compiling Data for {station}')
+        nysm_df1 = nysm_df_filtered[nysm_df_filtered["station"] == station]
+        hrrr_df1 = hrrr_df_filtered[hrrr_df_filtered["station"] == station]
 
         master_df = hrrr_df1.merge(nysm_df1, on="valid_time")
-        master_df = master_df.drop_duplicates(
-            subset=["valid_time", "t2m"], keep="first"
-        )
         master_df = columns_drop(master_df)
 
         # Calculate the error using NWP data.
         master_df = get_error.nwp_error("t2m", master_df)
         # encode for day_of_year
         master_df = normalize.encode(master_df, "day_of_year", 366)
-        # get flag for non-consecutive time steps
-        master_df = get_flag.get_flag(master_df)
 
-        cols_to_carry = ["valid_time", "station", "latitude", "longitude", "flag"]
+        cols_to_carry = ["valid_time", "station", "latitude", "longitude"]
 
         new_df = master_df.drop(columns=cols_to_carry)
 
@@ -91,8 +99,14 @@ def create_data_for_model():
         print("Test Set Fraction", len(df_test) / len(new_df))
 
         # Reintegrate the specified columns back into the training and testing DataFrames.
-        for c in cols_to_carry:
-            df_train[c] = master_df[c]
-            df_test[c] = master_df[c]
+        # for c in cols_to_carry:
+        #     df_train[c] = master_df[c]
+        #     df_test[c] = master_df[c]
+        df_train_ls.append(df_train)
+        df_test_ls.append(df_test)
 
-    return df_train, df_test, features
+        print("train_shape", df_train.shape)
+        print("test_shape", df_test.shape)
+        # print("train_start", df_train['valid_time'].iloc[0])
+        # print("test_start", df_test['valid_time'].iloc[0])
+    return df_train_ls, df_test_ls, features
