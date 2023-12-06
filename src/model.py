@@ -248,7 +248,7 @@ class VisionTransformer(nn.Module):
         # x \in (batch, stations * timesteps + 1, num_classes = 1)
         x = x[:, -(self.stations * self.future_timesteps):, :] # this shape is (batch, stations, num_classes = 1)
 
-        x = self.heads(x) # is a linear transformation from hidden_dim to 1
+        # x = self.heads(x) # is a linear transformation from hidden_dim to 1
         
         return x # logically we are saying return one value for the each future timestep for each station (interpreted as error)
 
