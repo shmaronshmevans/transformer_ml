@@ -1,6 +1,7 @@
 import pandas as pd
 import os
 import numpy as np
+import gc
 
 
 def read_hrrr_data():
@@ -12,8 +13,8 @@ def read_hrrr_data():
         pandas.DataFrame: of hrrr weather forecast information for each NYSM site.
     """
 
-    years = ["2018", "2019", "2020", "2021", "2022"]
-    savedir = "/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/"
+    years = ["2018", "2019", "2020", "2021", "2022", "2023"]
+    savedir = "/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh08/"
 
     # create empty lists to hold dataframes for each model
     hrrr_fcast_and_error = []
@@ -35,6 +36,7 @@ def read_hrrr_data():
                 )
             else:
                 continue
+            gc.collect()
 
     # concatenate dataframes for each model
     hrrr_fcast_and_error_df = pd.concat(hrrr_fcast_and_error)

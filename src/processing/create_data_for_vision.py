@@ -3,10 +3,11 @@ import sys
 sys.path.append("..")
 import pandas as pd
 import numpy as np
-from src.processing import hrrr_data
-from src.processing import nysm_data
-from src.processing import get_error
-from src.processing import normalize
+from processing import hrrr_data
+from processing import nysm_data
+from processing import get_error
+from processing import normalize
+import gc
 
 
 def columns_drop(df):
@@ -26,7 +27,7 @@ def columns_drop(df):
     return df
 
 
-def create_data_for_model():
+def create_data_for_model(clim_div, today_date):
     """
     This function creates and processes data for a vision transformer machine learning model.
 
@@ -46,20 +47,18 @@ def create_data_for_model():
     # Filter data by NY climate division
     nysm_cats_path = "/home/aevans/nwp_bias/src/landtype/data/nysm.csv"
     nysm_cats_df = pd.read_csv(nysm_cats_path)
-    nysm_cats_df = nysm_cats_df[
-        nysm_cats_df["climate_division_name"] == "Western Plateau"
-    ]
+    nysm_cats_df = nysm_cats_df[nysm_cats_df["climate_division_name"] == clim_div]
     stations = nysm_cats_df["stid"].tolist()
     nysm_df = nysm_df[nysm_df["station"].isin(stations)]
     hrrr_df = hrrr_df[hrrr_df["station"].isin(stations)]
 
     # need to create a master list for valid_times so that all the dataframes are the same shape
-    master_time = hrrr_df['valid_time'].tolist()
+    master_time = hrrr_df["valid_time"].tolist()
     for station in stations:
         hrrr_dft = hrrr_df[hrrr_df["station"] == station]
         nysm_dft = nysm_df[nysm_df["station"] == station]
-        times = hrrr_dft['valid_time'].tolist()
-        times2 = nysm_dft['valid_time'].tolist()
+        times = hrrr_dft["valid_time"].tolist()
+        times2 = nysm_dft["valid_time"].tolist()
         result = list(set(times) & set(master_time) & set(times2))
         master_time = result
     master_time_final = master_time
@@ -73,7 +72,7 @@ def create_data_for_model():
     # merge dataframes so that each row is hrrr + nysm data for the same time step
     # do this for each station individually
     for station in stations:
-        print(f'Compiling Data for {station}')
+        print(f"Compiling Data for {station}")
         nysm_df1 = nysm_df_filtered[nysm_df_filtered["station"] == station]
         hrrr_df1 = hrrr_df_filtered[hrrr_df_filtered["station"] == station]
 
@@ -86,10 +85,17 @@ def create_data_for_model():
         master_df = normalize.encode(master_df, "day_of_year", 366)
 
         cols_to_carry = ["valid_time", "station", "latitude", "longitude"]
+        master_df.to_parquet(
+            f"/home/aevans/transformer_ml/src/data/temp_df/{today_date}/{clim_div}/{clim_div}_{station}.parquet"
+        )
 
         new_df = master_df.drop(columns=cols_to_carry)
 
+        # for c in new_df.columns:
+        #     new_df[f'{c}_dt'] = new_df[c].diff()
+        # new_df = new_df.fillna(0)
         new_df, features = normalize.normalize_df(new_df)
+        new_df = new_df.fillna(0)
 
         # Split the data into training and testing sets.
         length = len(new_df)
@@ -107,6 +113,7 @@ def create_data_for_model():
 
         print("train_shape", df_train.shape)
         print("test_shape", df_test.shape)
+        gc.collect()
         # print("train_start", df_train['valid_time'].iloc[0])
         # print("test_start", df_test['valid_time'].iloc[0])
-    return df_train_ls, df_test_ls, features
+    return df_train_ls, df_test_ls, features, stations

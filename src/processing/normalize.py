@@ -21,6 +21,6 @@ def normalize_df(df):
         stdevs = st.pstdev(df[k])
         df[k] = (df[k] - means) / stdevs
 
-    og_features = list(df.columns.difference(["target_error"]))
+    og_features = [c for c in df.columns if c != "target_error"]
     new_features = og_features
     return df, new_features
