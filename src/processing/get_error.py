@@ -21,6 +21,8 @@ def nwp_error(target, df):
     vars_dict = {
         "t2m": "tair",
         "mslma": "pres",
+        "tp": "precip_total",
+        "u_total": "wspd_sonic_mean",
         # Add more variable mappings as needed.
     }
 
@@ -29,6 +31,6 @@ def nwp_error(target, df):
 
     # Calculate the 'target_error' by subtracting NYSM data from NWP model data.
     target_error = df[f"{target}"] - df[f"{nysm_var}"]
-    df.insert(loc=(23), column=f"target_error", value=target_error)
-
+    df.insert(loc=(1), column=f"target_error", value=target_error)
+    df = df.drop(df[abs(df['target_error']) > 100].index)
     return df

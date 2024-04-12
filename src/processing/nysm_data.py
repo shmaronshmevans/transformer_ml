@@ -33,7 +33,7 @@ def load_nysm_data():
     nysm_1H = []
 
     # Loop through the years from 2018 to 2022 and read the corresponding parquet files.
-    for year in np.arange(2018, 2023):
+    for year in np.arange(2018, 2024):
         df = pd.read_parquet(f"{nysm_path}nysm_1H_obs_{year}.parquet")
         df.reset_index(inplace=True)
         nysm_1H.append(df)
@@ -41,10 +41,7 @@ def load_nysm_data():
     # Concatenate data from different years into a single DataFrame.
     nysm_1H_obs = pd.concat(nysm_1H)
 
-    # Fill missing values in the 'snow_depth' column with -999.
-    nysm_1H_obs["snow_depth"] = nysm_1H_obs["snow_depth"].fillna(-999)
-
     # Drop rows with any remaining missing values.
-    nysm_1H_obs.dropna(inplace=True)
+    nysm_1H_obs.fillna(-999, inplace=True)
 
     return nysm_1H_obs

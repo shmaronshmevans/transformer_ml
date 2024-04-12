@@ -14,7 +14,6 @@ def encode(data, col, max_val):
 
     return data
 
-
 def normalize_df(df):
     for k, r in df.items():
         means = st.mean(df[k])

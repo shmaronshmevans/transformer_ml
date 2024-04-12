@@ -4,7 +4,7 @@ import numpy as np
 import gc
 
 
-def read_hrrr_data():
+def read_hrrr_data(forecast_hour):
     """
     Reads and concatenates parquet files containing forecast and error data for HRRR weather models
     for the years 2018 to 2022.
@@ -14,7 +14,7 @@ def read_hrrr_data():
     """
 
     years = ["2018", "2019", "2020", "2021", "2022", "2023"]
-    savedir = "/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh08/"
+    savedir = f"/home/aevans/nwp_bias/src/machine_learning/data/hrrr_data/ny/fh{str(forecast_hour).zfill(2)}/"
 
     # create empty lists to hold dataframes for each model
     hrrr_fcast_and_error = []
