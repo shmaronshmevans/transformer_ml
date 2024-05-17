@@ -1,10 +1,10 @@
 #!/bin/bash
 
-#SBATCH --job-name=vision
+#SBATCH --job-name=__ViT
 #SBATCH --account=ai2es
 #SBATCH --qos=long
 #SBATCH --time=96:00:00
-#SBATCH --partition=v100
+#SBATCH --partition=a6000
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=300G
 #SBATCH --gpus-per-node=1
@@ -15,4 +15,3 @@
 
 apptainer run --nv /home/aevans/apptainer/pytorch2.sif /home/aevans/miniconda3/bin/python /home/aevans/transformer_ml/src/engine.py
 
-# apptainer run --nv /home/aevans/apptainer/gh200_py.sif /home/aevans/conda3/bin/python /home/aevans/transformer_ml/src/model.py

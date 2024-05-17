@@ -85,7 +85,9 @@ class MultiStationDataset(Dataset):
         ).to(torch.float32)
 
         # this is (stations, seq_len, features)
-        x[:, -self.future_steps:, -self.nysm_vars:] = -999.0
+        # Assuming 'self.future_steps' and 'self.nysm_vars' are defined properly, and 'x' has the appropriate dimensions
+        # x[:, -self.future_steps:, -self.nysm_vars:] = x[:, self.future_steps:self.future_steps+1, -self.nysm_vars:].expand(-1, self.future_steps, -1)
+        x[:, -self.future_steps:, -self.nysm_vars:] = -999
         # check that this is setting the right positions to this value
         return x, y
 
@@ -118,7 +120,10 @@ def train_model(data_loader, model, optimizer, device, epoch, loss_func):
 
         # Forward pass and loss computation.
         output = model(X)
-        loss = loss_func(output, y[-1])
+        print("out", output[-1])
+        print("y", y[-1])
+        print()
+        loss = loss_func(output[-1], y[-1])
 
         # Zero the gradients, backward pass, and optimization step.
         optimizer.zero_grad()
@@ -129,9 +134,6 @@ def train_model(data_loader, model, optimizer, device, epoch, loss_func):
         # Track the total loss and the number of processed samples.
         total_loss += loss.item()
         gc.collect()
-
-    # Synchronize and aggregate losses in distributed training.
-    # dist.all_reduce(ddp_loss, op=dist.ReduceOp.SUM)
 
     # Compute the average loss for the current epoch.
     avg_loss = total_loss / num_batches
@@ -156,7 +158,7 @@ def test_model(data_loader, model, device, epoch, loss_func):
         # Forward pass to obtain model predictions.
         output = model(X)
         # Compute loss and add it to the total loss.
-        total_loss += loss_func(output, y[-1]).item()
+        total_loss += loss_func(output[-1], y[-1]).item()
         gc.collect()
 
     # Calculate the average test loss.
@@ -164,6 +166,23 @@ def test_model(data_loader, model, device, epoch, loss_func):
     print("epoch", epoch, "test_loss:", avg_loss)
 
     return avg_loss
+
+class EarlyStopper:
+    def __init__(self, patience, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = np.inf
+
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
 
 def main(EPOCHS, BATCH_SIZE, LEARNING_RATE, CLIM_DIV, past_timesteps, forecast_hour, single):
     experiment = Experiment(
@@ -194,17 +213,17 @@ def main(EPOCHS, BATCH_SIZE, LEARNING_RATE, CLIM_DIV, past_timesteps, forecast_h
         variables=(len(df_train_ls[0].keys()) - 1),
         num_layers=2,
         num_heads=12,
-        hidden_dim=768,
-        mlp_dim=3072,
-        dropout=0.2,
-        attention_dropout=0.4,
-        pos_embedding=0.6,
+        hidden_dim=252,
+        mlp_dim=1032,
+        dropout=0.1,
+        attention_dropout=0.2,
+        pos_embedding=0.02,
     )
     if torch.cuda.is_available():
         ml.cuda()
 
     # Adam Optimizer
-    optimizer = torch.optim.Adam(ml.parameters(), lr=LEARNING_RATE)
+    optimizer = torch.optim.AdamW(ml.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
     # MSE Loss
     loss_func = nn.MSELoss()
     # loss_func = FocalLossV3()
@@ -236,9 +255,9 @@ def main(EPOCHS, BATCH_SIZE, LEARNING_RATE, CLIM_DIV, past_timesteps, forecast_h
         experiment.log_metric("train_loss", train_loss)
         experiment.log_metrics(hyper_params, epoch=ix_epoch)
         scheduler.step(test_loss)
-        # if early_stopper.early_stop(test_loss):
-        #     print(f"Early stopping at epoch {ix_epoch}")
-        #     break
+        if early_stopper.early_stop(test_loss):
+            print(f"Early stopping at epoch {ix_epoch}")
+            break
 
     save_output.eval_model(
         train_loader,
@@ -259,9 +278,9 @@ def main(EPOCHS, BATCH_SIZE, LEARNING_RATE, CLIM_DIV, past_timesteps, forecast_h
 
 
 main(EPOCHS= 50, 
-BATCH_SIZE= int(150e1), 
-LEARNING_RATE= 2e-4, 
-CLIM_DIV= "VOOR", 
+BATCH_SIZE= int(600), 
+LEARNING_RATE= 2e-5, 
+CLIM_DIV= "Mohawk Valley", 
 past_timesteps= 36, 
 forecast_hour= 4, 
-single=True)
+single=False)

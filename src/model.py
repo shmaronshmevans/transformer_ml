@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, List, NamedTuple, Optional
 from processing import create_data_for_vision
 from processing import save_output
 from processing import get_time_title
+import math
 
 
 class MLPBlock(MLP):
@@ -49,11 +50,14 @@ class MLPBlock(MLP):
             dropout=dropout,
         )
 
+        # Initialize weights and biases
         for m in self.modules():
             if isinstance(m, nn.Linear):
-                nn.init.xavier_uniform_(m.weight)
+                nn.init.kaiming_uniform_(m.weight, a=math.sqrt(5))  # He initialization
                 if m.bias is not None:
-                    nn.init.normal_(m.bias, std=1e-6)
+                    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(m.weight)
+                    bound = 1 / math.sqrt(fan_in)
+                    nn.init.uniform_(m.bias, -bound, bound)
 
     def _load_from_state_dict(
         self,
@@ -183,14 +187,14 @@ class VisionTransformer(nn.Module):
         future_timesteps: int,
         num_vars: int,
         pos_embedding: torch.Tensor,
-        num_layers: int = 6,
-        num_heads: int = 8,
-        hidden_dim: int = 128,
-        mlp_dim: int = 768,
-        dropout: float = 0.0,
-        attention_dropout: float = 0.0,
+        num_layers: int,
+        num_heads: int,
+        hidden_dim: int,
+        mlp_dim: int,
+        dropout: float,
+        attention_dropout: float,
         num_classes: int = 1,
-        representation_size: Optional[int] = None,
+        representation_size: Optional[int] = 256,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
     ):
         super().__init__()
@@ -214,7 +218,7 @@ class VisionTransformer(nn.Module):
         seq_length = stations * (future_timesteps + past_timesteps)
 
         # Add a class token
-        self.class_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+        self.class_token = nn.Parameter(torch.randn(1, 1, hidden_dim)*0.02)
         seq_length += 1
 
         self.encoder = Encoder(
@@ -235,7 +239,7 @@ class VisionTransformer(nn.Module):
             heads_layers["head"] = nn.Linear(hidden_dim, num_classes)
         else:
             heads_layers["pre_logits"] = nn.Linear(hidden_dim, representation_size)
-            heads_layers["act"] = nn.Tanh()
+            heads_layers["act"] = nn.GELU()
             heads_layers["head"] = nn.Linear(representation_size, num_classes)
 
         self.heads = nn.Sequential(heads_layers)
@@ -250,8 +254,8 @@ class VisionTransformer(nn.Module):
             nn.init.zeros_(self.heads.pre_logits.bias)
 
         if isinstance(self.heads.head, nn.Linear):
-            nn.init.zeros_(self.heads.head.weight)
-            nn.init.zeros_(self.heads.head.bias)
+            nn.init.xavier_uniform_(self.heads.head.weight)  # Xavier initialization
+            nn.init.zeros_(self.heads.head.bias)  # Bias can be initialized to zero or a small constant.
 
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
         # n = batch size
@@ -291,9 +295,7 @@ class VisionTransformer(nn.Module):
         x = x[
             :, -(self.stations * self.future_timesteps) :, :
         ]  # this shape is (batch, stations, num_classes = 1)
-
         x = self.heads(x)  # is a linear transformation from hidden_dim to 1
-
         x = x.reshape(n, self.stations, self.future_timesteps, self.num_classes)
 
         return (
@@ -337,69 +339,3 @@ class AaronFormer(nn.Module):
     def forward(self, x):
         x = self.encoder(x)
         return x
-
-
-# def focal_loss(output, target, gamma=2.0, alpha=0.25):
-#     """Focal loss function.
-
-#     Args:
-#         output: The predicted output of the model.
-#         target: The ground truth target.
-#         gamma: The gamma parameter.
-#         alpha: The alpha parameter.
-
-#     Returns:
-#         The focal loss.
-#     """
-#     p = torch.sigmoid(output)
-#     pt = p * target + (1 - p) * (1 - target)
-#     loss = -alpha * (1 - pt)**gamma * torch.log(pt)
-#     return loss
-
-# # version 3: implement wit cpp/cuda to save memory and accelerate
-# class FocalSigmoidLossFuncV3(torch.autograd.Function):
-#     '''
-#     use cpp/cuda to accelerate and shrink memory usage
-#     '''
-#     @staticmethod
-#     @amp.custom_fwd(cast_inputs=torch.float32)
-#     def forward(ctx, logits, labels, alpha, gamma):
-#         #  logits = logits.float()
-#         loss = focal_cpp.focalloss_forward(logits, labels, gamma, alpha)
-#         ctx.variables = logits, labels, alpha, gamma
-#         return loss
-
-#     @staticmethod
-#     @amp.custom_bwd
-#     def backward(ctx, grad_output):
-#         '''
-#         compute gradient of focal loss
-#         '''
-#         logits, labels, alpha, gamma = ctx.variables
-#         grads = focal_cpp.focalloss_backward(grad_output, logits, labels, gamma, alpha)
-#         return grads, None, None, None
-
-# class FocalLossV3(nn.Module):
-#     '''
-#     This use better formula to compute the gradient, which has better numeric stability. Also use cuda to shrink memory usage and accelerate.
-#     '''
-#     def __init__(self, alpha=0.25, gamma=2, reduction='mean'):
-#         super(FocalLossV3, self).__init__()
-#         self.alpha = alpha
-#         self.gamma = gamma
-#         self.reduction = reduction
-
-#     def forward(self, logits, label):
-#         '''
-#         Usage is same as nn.BCEWithLogits:
-#             >>> criteria = FocalLossV3()
-#             >>> logits = torch.randn(8, 19, 384, 384)
-#             >>> lbs = torch.randint(0, 2, (8, 19, 384, 384)).float()
-#             >>> loss = criteria(logits, lbs)
-#         '''
-#         loss = FocalSigmoidLossFuncV3.apply(logits, label, self.alpha, self.gamma)
-#         if self.reduction == 'mean':
-#             loss = loss.mean()
-#         if self.reduction == 'sum':
-#             loss = loss.sum()
-#         return loss
