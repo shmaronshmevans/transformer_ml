@@ -143,6 +143,7 @@ class Encoder(nn.Module):
         hidden_dim: int,
         mlp_dim: int,
         dropout: float,
+        past_timesteps: int,
         pos_embedding: torch.Tensor,
         time_embedding: torch.Tensor,
         attention_dropout: float,
@@ -151,14 +152,15 @@ class Encoder(nn.Module):
         super().__init__()
 
         # position
+
         # we have batch_first=True in nn.MultiAttention() by default
         self.pos_embedding = nn.Parameter(
-            torch.empty(1, seq_length, hidden_dim).normal_(std=pos_embedding)
+            torch.empty(1, ((seq_length-1)*10*10)+1, hidden_dim).normal_(std=pos_embedding)
         )  # from BERT
 
         # Time embedding
         self.time_embedding = nn.Parameter(
-            torch.empty(1, seq_length, hidden_dim).normal_(std=time_embedding)
+            torch.empty(1, ((seq_length-1)*10*10)+1, hidden_dim).normal_(std=time_embedding)
         )
         self.dropout = nn.Dropout(dropout)
         layers: OrderedDict[str, nn.Module] = OrderedDict()
@@ -180,8 +182,7 @@ class Encoder(nn.Module):
             f"Expected (batch_size, seq_length, hidden_dim) got {input.shape}",
         )
         # Get the time embedding for the specific time step
-        time_embeddings = self.time_embedding[:, :input.size(1), :].expand(input.size(0), -1, -1)
-        input += self.pos_embedding + time_embeddings
+        input += self.pos_embedding + self.time_embedding
         return self.ln(self.layers(self.dropout(input)))
 
 
@@ -203,7 +204,7 @@ class VisionTransformer(nn.Module):
         dropout: float,
         attention_dropout: float,
         num_classes: int = 1,
-        representation_size: Optional[int] = 256,
+        representation_size: Optional[int] = None,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
     ):
         super().__init__()
@@ -224,7 +225,8 @@ class VisionTransformer(nn.Module):
             num_vars, [hidden_dim], None, torch.nn.GELU, dropout=dropout
         )
 
-        seq_length = stations * (past_timesteps)
+
+        seq_length = past_timesteps 
 
         # Add a class token
         self.class_token = nn.Parameter(torch.randn(1, 1, hidden_dim)*0.02)
@@ -237,6 +239,7 @@ class VisionTransformer(nn.Module):
             hidden_dim,
             mlp_dim,
             dropout,
+            past_timesteps,
             pos_embedding,
             time_embedding,
             attention_dropout,
@@ -267,32 +270,34 @@ class VisionTransformer(nn.Module):
             nn.init.xavier_uniform_(self.heads.head.weight)  # Xavier initialization
             nn.init.zeros_(self.heads.head.bias)  # Bias can be initialized to zero or a small constant.
 
+    def average_pooling(self, x: torch.Tensor, target_size: tuple) -> torch.Tensor:
+        n, t, h, w, c = x.shape
+        x = x.permute(0, 4, 1, 2, 3)  # Rearrange to [batch, features, timesteps, height, width]
+        x = x.reshape(n * c, t, h, w)  # Merge batch and features for pooling
+
+        # Downsample the spatial dimensions using average pooling
+        x = F.adaptive_max_pool2d(x, target_size)
+
+        x = x.view(n, c, t, target_size[0], target_size[1])  # Reshape back
+        x = x.permute(0, 2, 3, 4, 1)  # Rearrange to [batch, timesteps, height, width, features]
+        return x
+
     def _process_input(self, x: torch.Tensor) -> torch.Tensor:
-        # n = batch size
-        # h = number of stations
-        # w = number of time steps
-        # c = number of features
-        # n, h, w, c = x.shape
-        
-        torch._assert(
-            h == self.stations,
-            f"Wrong image height! Expected {self.stations} but got {h}!",
-        )
-        torch._assert(
-            w == self.timesteps,
-            f"Wrong image width! Expected {self.timesteps} but got {w}!",
-        )
+        # n = batch
+        # t = timesteps
+        # h = height
+        # w = width
+        # c = features 
 
-        # (n, hidden_dim, n_h, n_w) -> (n, hidden_dim, (n_h * n_w))
-
-        x = x.reshape(n, h * w, self.num_vars)
+        x = self.average_pooling(x, (10,10))
+        n, t, h, w, c = x.shape
+        x = x.reshape(n, t*h*w, c)
         x = self.mlp(x)
 
         return x
 
     def forward(self, x: torch.Tensor):
         # Reshape and permute the input tensor
-        print("x", x.shape)
         x = self._process_input(x)
         n = x.shape[0]
 
@@ -308,7 +313,7 @@ class VisionTransformer(nn.Module):
             :, -(self.stations * self.future_timesteps) :, :
         ]  # this shape is (batch, stations, num_classes = 1)
         x = self.heads(x)  # is a linear transformation from hidden_dim to 1
-        x = x.reshape(n, self.stations, self.future_timesteps, self.num_classes)
+        x = x.reshape(n, self.future_timesteps, self.stations, self.num_classes)
 
         return (
             x.squeeze()
